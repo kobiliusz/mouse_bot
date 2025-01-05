@@ -8,9 +8,11 @@ import argparse
 import configparser
 import re
 import time
+import html2text
 
 from loguru import logger
 from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 
 try:
@@ -39,6 +41,16 @@ class SeleniumAction(BaseModel):
 
 
 parser = PydanticOutputParser(pydantic_object=SeleniumAction)
+
+
+def extract_text(driver):
+    html_parser = html2text.HTML2Text()
+    html_parser.single_line_break = True
+    html_parser.images_to_alt = True
+    html_parser.inline_links = False
+
+    html_source = driver.page_source
+    return html_parser.handle(html_source)
 
 
 def find_clickable_elements(driver):
@@ -122,6 +134,14 @@ def find_input_elements(driver):
     return 'Found input elements:\n' + '\n'.join(descriptions)
 
 
+def press_enter(driver, css_selector):
+    """
+    Znajduje element za pomocą selektora CSS i wysyła mu klawisz Enter.
+    """
+    element = driver.find_element(By.CSS_SELECTOR, css_selector)
+    element.send_keys(Keys.ENTER)
+
+
 def execute_selenium_action(action_data: SeleniumAction, driver) -> str:
     """Perform the requested Selenium action and return the result or error message."""
     try:
@@ -146,11 +166,18 @@ def execute_selenium_action(action_data: SeleniumAction, driver) -> str:
         elif action_data.action == "sleep":
             secs = int(action_data.value)
             time.sleep(secs)
-            return "{secs} seconds have elapsed"
+            return f"{secs} seconds have elapsed"
         elif action_data.action == "find_clickable":
             return find_clickable_elements(driver)
         elif action_data.action == "find_input":
             return find_input_elements(driver)
+        elif action_data.action == "press_enter":
+            element = driver.find_element(By.CSS_SELECTOR, action_data.selector)
+            element.click()
+            time.sleep(1)
+            return "Press enter successful"
+        elif action_data.action == "extract_text":
+            return extract_text(driver)
         else:
             return f"Unknown action: {action_data.action}"
     except Exception as e:
@@ -169,9 +196,20 @@ def main():
     arg_parser.add_argument("-i", "--iterations", type=int, default=5, help="Number of LLM iterations allowed.")
     args = arg_parser.parse_args()
 
+    custom_user_agent = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/102.0.5005.115 Safari/537.36"
+    )
+
     # B) Initialize headless Selenium WebDriver
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
+    options.add_argument(f"--user-agent={custom_user_agent}")
+    # Remove standard Selenium 'AutomationControlled' flag
+    # to reduce detection (optional).
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
     driver = webdriver.Chrome(options=options)
     logger.info("Headless Chrome WebDriver started.")
 
@@ -195,12 +233,14 @@ def main():
                 f"Your final goal: {args.task}\n\n"
                 "You must respond ONLY in valid JSON (no extra text) with the schema:\n"
                 "{\n"
-                "  \"action\": \"navigate|find_clickable|find_input|click|input|extract|sleep\",\n"
+                "  \"action\": \"navigate|extract_text|find_clickable|find_input|press_enter|click|input|extract|sleep\",\n"
                 "  \"selector\": \"<CSS selector>\",\n"
                 "  \"value\": \"<URL/text/seconds if needed>\"\n"
                 "}\n"
                 "Example:\n"
-                "{\"action\": \"navigate\", \"value\": \"https://google.com\"}"
+                "{\"action\": \"navigate\", \"value\": \"https://duckduckgo.com/\"}\n"
+                "Do not use the following websites as selenium can't handle them:\n"
+                "google.com"
             )
         )
     ]

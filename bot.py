@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Usage:
-  python script.py --task "promote mice ownership" --iterations 5
+  python script.py --task "promote mice ownership" --iterations 100
 """
 
 import argparse
@@ -9,11 +9,14 @@ import configparser
 import re
 import time
 import html2text
+import tiktoken
 
 from loguru import logger
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
+
+MODEL_NAME = "gpt-4o"
 
 try:
     from langchain_core.messages import (
@@ -142,22 +145,19 @@ def press_enter(driver, css_selector):
     element.send_keys(Keys.ENTER)
 
 
-def execute_selenium_action(action_data: SeleniumAction, driver) -> str:
+def execute_selenium_action(action_data: SeleniumAction, driver, default_sleep: int) -> str:
     """Perform the requested Selenium action and return the result or error message."""
     try:
         if action_data.action == "navigate":
             driver.get(action_data.value)
-            time.sleep(2)
             return "Navigation successful"
         elif action_data.action == "click":
             element = driver.find_element(By.CSS_SELECTOR, action_data.selector)
             element.click()
-            time.sleep(1)
             return "Click successful"
         elif action_data.action == "input":
             element = driver.find_element(By.CSS_SELECTOR, action_data.selector)
             element.send_keys(action_data.value)
-            time.sleep(1)
             return "Input successful"
         elif action_data.action == "extract":
             element = driver.find_element(By.CSS_SELECTOR, action_data.selector)
@@ -165,8 +165,9 @@ def execute_selenium_action(action_data: SeleniumAction, driver) -> str:
             return element.text[:2000]
         elif action_data.action == "sleep":
             secs = int(action_data.value)
+            logger.info(f'Sleeping for {secs} seconds.')
             time.sleep(secs)
-            return f"{secs} seconds have elapsed"
+            return f"{secs + default_sleep} seconds have elapsed"
         elif action_data.action == "find_clickable":
             return find_clickable_elements(driver)
         elif action_data.action == "find_input":
@@ -174,7 +175,6 @@ def execute_selenium_action(action_data: SeleniumAction, driver) -> str:
         elif action_data.action == "press_enter":
             element = driver.find_element(By.CSS_SELECTOR, action_data.selector)
             element.click()
-            time.sleep(1)
             return "Press enter successful"
         elif action_data.action == "extract_text":
             return extract_text(driver)
@@ -189,11 +189,26 @@ def execute_selenium_action(action_data: SeleniumAction, driver) -> str:
         return f"Error executing Selenium action: {error_text}"
 
 
+def truncate_text_to_n_tokens(text: str, n: int, model_name: str = "gpt-3.5-turbo") -> str:
+    """
+    Przycina tekst tak, aby mieścił się w maksymalnie n tokenach (dla zadanego modelu).
+    Zwraca przycięty tekst.
+    """
+    tokenizer = tiktoken.encoding_for_model(model_name)
+    tokens = tokenizer.encode(text)
+    truncated_tokens = tokens[:n]
+    truncated_text = tokenizer.decode(truncated_tokens)
+    return truncated_text
+
+
 def main():
     # A) Parse CLI arguments
     arg_parser = argparse.ArgumentParser(description="Autonomous Selenium Assistant (new trim_messages approach)")
     arg_parser.add_argument("-t", "--task", required=True, help="Final goal/task for the assistant.")
-    arg_parser.add_argument("-i", "--iterations", type=int, default=5, help="Number of LLM iterations allowed.")
+    arg_parser.add_argument("-i", "--iterations", type=int, default=100, help="Number of LLM iterations allowed.")
+    arg_parser.add_argument("-p", "--pause", type=int, default=60, help="Pause between requests.")
+    arg_parser.add_argument("-m", "--max-tokens", type=int, default=2000, help="Maximum tokens in a single response.")
+    arg_parser.add_argument("-r", "--remembered", type=int, default=8, help="Chat memory capacity in messages.")
     args = arg_parser.parse_args()
 
     custom_user_agent = (
@@ -239,6 +254,9 @@ def main():
                 "}\n"
                 "Example:\n"
                 "{\"action\": \"navigate\", \"value\": \"https://duckduckgo.com/\"}\n"
+                f"The response will be truncated to {args.max_tokens}.\n"
+                f"There will be (an additional) pause between requests of {args.pause} seconds.\n"
+                f"Your conversation memory fits {args.remembered} messages.\n"
                 "Do not use the following websites as selenium can't handle them:\n"
                 "google.com"
             )
@@ -246,7 +264,7 @@ def main():
     ]
 
     # We'll define a simpler function to pass trimmed history to the LLM.
-    def call_llm_with_trimmed_history(llm, conversation_history, user_text, max_tokens=3000):
+    def call_llm_with_trimmed_history(llm, conversation_history, user_text, memory_size):
         """
         1) Append a HumanMessage(user_text) to conversation_history.
         2) Trim the entire conversation with `trim_messages` so we don't blow up token usage.
@@ -263,7 +281,7 @@ def main():
         trimmed = trim_messages(
             conversation_history,
             token_counter=len,
-            max_tokens=10,        # e.g. keep 10 messages total
+            max_tokens=memory_size,        # e.g. keep 10 messages total
             strategy="last",      # keep last messages
             start_on="human",     # ensure we don't break the sequence in the middle
             include_system=True,  # we want to keep the system prompt if possible
@@ -283,7 +301,7 @@ def main():
         return llm_text
 
     # D) Initialize our LLM
-    llm = ChatOpenAI(model_name="gpt-4", temperature=0.0, openai_api_key=openai_key)  # or any other model
+    llm = ChatOpenAI(model_name=MODEL_NAME, temperature=0.0, openai_api_key=openai_key)  # or any other model
 
     # E) Let's track the last Selenium result to show LLM
     last_selenium_result = "No actions performed yet."
@@ -300,7 +318,7 @@ def main():
             )
 
             # 1) Call LLM with trimmed conversation
-            llm_output = call_llm_with_trimmed_history(llm, conversation_history, user_message_text)
+            llm_output = call_llm_with_trimmed_history(llm, conversation_history, user_message_text, args.remembered)
             logger.info("LLM Output:\n{}", llm_output)
 
             # 2) Parse JSON from the LLM
@@ -311,8 +329,13 @@ def main():
                 break
 
             # 3) Execute the Selenium action
-            last_selenium_result = execute_selenium_action(action_data, driver)
-            logger.info("Selenium Result:\n{}", last_selenium_result)
+            last_selenium_result = execute_selenium_action(action_data, driver, args.pause)
+            last_selenium_result = truncate_text_to_n_tokens(last_selenium_result, args.max_tokens, MODEL_NAME)
+            logger.info("Truncated Selenium Result:\n{}", last_selenium_result)
+
+            # sleep
+            logger.info(f'Sleeping for {args.pause} seconds.')
+            time.sleep(args.pause)
 
             # If there's a condition to stop early (e.g. if the LLM says "stop"), you can break here.
             # e.g. if action_data.action == "stop": break

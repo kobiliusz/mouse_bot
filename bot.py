@@ -41,6 +41,87 @@ class SeleniumAction(BaseModel):
 parser = PydanticOutputParser(pydantic_object=SeleniumAction)
 
 
+def find_clickable_elements(driver):
+    """
+    Return a list of descriptive strings for clickable elements on the current page.
+    Each string includes tag name, class, id, and text (where applicable).
+    """
+    # Common selectors for potentially clickable elements
+    clickable_selector = (
+        "a[href], "
+        "button, "
+        "[role='button'], "
+        "input[type='button'], "
+        "input[type='submit'], "
+        "input[type='image'], "
+        "[onclick]"
+    )
+
+    # Find candidate elements
+    candidates = driver.find_elements(By.CSS_SELECTOR, clickable_selector)
+
+    # Build descriptions for visible & enabled elements
+    descriptions = []
+    for element in candidates:
+        if element.is_displayed() and element.is_enabled():
+            tag_name = element.tag_name or "(no tag)"
+            class_attr = element.get_attribute("class") or "(no class)"
+            id_attr = element.get_attribute("id") or "(no id)"
+            text_attr = element.text.strip() or "(no text)"
+
+            description = f"tag={tag_name}, class={class_attr}, id={id_attr}, text={text_attr}"
+            descriptions.append(description)
+
+    return 'Found clickable elements:\n' + '\n'.join(descriptions)
+
+
+def find_input_elements(driver):
+    """
+    Return a list of descriptive strings for input-like elements on the current page.
+    Each string includes tag name, class, id, and type/placeholder (where applicable).
+    Only visible and enabled elements are included.
+    """
+    # Common selectors for input elements
+    input_selector = (
+        "input, "  # <input>
+        "textarea, "  # <textarea>
+        "select"  # <select>
+    )
+
+    # Find candidate elements
+    candidates = driver.find_elements(By.CSS_SELECTOR, input_selector)
+
+    # Build descriptions for visible & enabled elements
+    descriptions = []
+    for element in candidates:
+        if element.is_displayed() and element.is_enabled():
+            tag_name = element.tag_name or "(no tag)"
+            class_attr = element.get_attribute("class") or "(no class)"
+            id_attr = element.get_attribute("id") or "(no id)"
+
+            # For <input> tags, we often want the 'type' attribute
+            type_attr = element.get_attribute("type") or "(no type)"
+
+            # For <textarea> or <select>, 'type' doesn't apply, but we might show placeholder or name
+            # Just as an example, let's also capture the placeholder if present
+            placeholder_attr = element.get_attribute("placeholder") or "(no placeholder)"
+
+            # Build a unified description
+            # If it's an <input> tag, we show the type
+            # If it's not <input>, 'type' often won't matter, but we'll show it anyway for consistency
+            description = (
+                f"tag={tag_name}, "
+                f"class={class_attr}, "
+                f"id={id_attr}, "
+                f"type={type_attr}, "
+                f"placeholder={placeholder_attr}"
+            )
+
+            descriptions.append(description)
+
+    return 'Found input elements:\n' + '\n'.join(descriptions)
+
+
 def execute_selenium_action(action_data: SeleniumAction, driver) -> str:
     """Perform the requested Selenium action and return the result or error message."""
     try:
@@ -66,6 +147,10 @@ def execute_selenium_action(action_data: SeleniumAction, driver) -> str:
             secs = int(action_data.value)
             time.sleep(secs)
             return "{secs} seconds have elapsed"
+        elif action_data.action == "find_clickable":
+            return find_clickable_elements(driver)
+        elif action_data.action == "find_input":
+            return find_input_elements(driver)
         else:
             return f"Unknown action: {action_data.action}"
     except Exception as e:
@@ -110,12 +195,12 @@ def main():
                 f"Your final goal: {args.task}\n\n"
                 "You must respond ONLY in valid JSON (no extra text) with the schema:\n"
                 "{\n"
-                "  \"action\": \"navigate|click|input|extract|sleep\",\n"
+                "  \"action\": \"navigate|find_clickable|find_input|click|input|extract|sleep\",\n"
                 "  \"selector\": \"<CSS selector>\",\n"
                 "  \"value\": \"<URL/text/seconds if needed>\"\n"
                 "}\n"
                 "Example:\n"
-                "{\"action\": \"navigate\", \"value\": \"https://example.com\"}"
+                "{\"action\": \"navigate\", \"value\": \"https://google.com\"}"
             )
         )
     ]

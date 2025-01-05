@@ -145,7 +145,7 @@ def press_enter(driver, css_selector):
     element.send_keys(Keys.ENTER)
 
 
-def execute_selenium_action(action_data: SeleniumAction, driver, default_sleep: int) -> str:
+def execute_selenium_action(action_data: SeleniumAction, driver, default_sleep: int, max_tokens: int) -> str:
     """Perform the requested Selenium action and return the result or error message."""
     try:
         if action_data.action == "navigate":
@@ -162,22 +162,25 @@ def execute_selenium_action(action_data: SeleniumAction, driver, default_sleep: 
         elif action_data.action == "extract":
             element = driver.find_element(By.CSS_SELECTOR, action_data.selector)
             # Truncate text if it's too large
-            return element.text[:2000]
+            return truncate_text_to_n_tokens(element.text, max_tokens, MODEL_NAME, 0)
         elif action_data.action == "sleep":
             secs = int(action_data.value)
             logger.info(f'Sleeping for {secs} seconds.')
             time.sleep(secs)
             return f"{secs + default_sleep} seconds have elapsed"
         elif action_data.action == "find_clickable":
-            return find_clickable_elements(driver)
+            return truncate_text_to_n_tokens(find_clickable_elements(driver), max_tokens, MODEL_NAME, 0)
         elif action_data.action == "find_input":
-            return find_input_elements(driver)
+            return truncate_text_to_n_tokens(find_input_elements(driver), max_tokens, MODEL_NAME, 0)
         elif action_data.action == "press_enter":
             element = driver.find_element(By.CSS_SELECTOR, action_data.selector)
             element.click()
             return "Press enter successful"
         elif action_data.action == "extract_text":
-            return extract_text(driver)
+            omit = int(action_data.value)
+            extracted_text = extract_text(driver)
+            extracted_text = truncate_text_to_n_tokens(extracted_text, max_tokens, MODEL_NAME, omit)
+            return extracted_text
         else:
             return f"Unknown action: {action_data.action}"
     except Exception as e:
@@ -189,14 +192,14 @@ def execute_selenium_action(action_data: SeleniumAction, driver, default_sleep: 
         return f"Error executing Selenium action: {error_text}"
 
 
-def truncate_text_to_n_tokens(text: str, n: int, model_name: str = "gpt-3.5-turbo") -> str:
+def truncate_text_to_n_tokens(text: str, n: int, model_name: str, omit_tokens: int) -> str:
     """
     Przycina tekst tak, aby mieścił się w maksymalnie n tokenach (dla zadanego modelu).
     Zwraca przycięty tekst.
     """
     tokenizer = tiktoken.encoding_for_model(model_name)
     tokens = tokenizer.encode(text)
-    truncated_tokens = tokens[:n]
+    truncated_tokens = tokens[omit_tokens:n]
     truncated_text = tokenizer.decode(truncated_tokens)
     return truncated_text
 
@@ -250,10 +253,11 @@ def main():
                 "{\n"
                 "  \"action\": \"navigate|extract_text|find_clickable|find_input|press_enter|click|input|extract|sleep\",\n"
                 "  \"selector\": \"<CSS selector>\",\n"
-                "  \"value\": \"<URL/text/seconds if needed>\"\n"
+                "  \"value\": \"<URL/text/seconds/tokens if needed>\"\n"
                 "}\n"
                 "Example:\n"
                 "{\"action\": \"navigate\", \"value\": \"https://duckduckgo.com/\"}\n"
+                "extract_text takes number of tokens to skip at the beginning as an argument\n"
                 f"The response will be truncated to {args.max_tokens}.\n"
                 f"There will be (an additional) pause between requests of {args.pause} seconds.\n"
                 f"Your conversation memory fits {args.remembered} messages.\n"
@@ -329,8 +333,7 @@ def main():
                 break
 
             # 3) Execute the Selenium action
-            last_selenium_result = execute_selenium_action(action_data, driver, args.pause)
-            last_selenium_result = truncate_text_to_n_tokens(last_selenium_result, args.max_tokens, MODEL_NAME)
+            last_selenium_result = execute_selenium_action(action_data, driver, args.pause, args.max_tokens)
             logger.info("Truncated Selenium Result:\n{}", last_selenium_result)
 
             # sleep

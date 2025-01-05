@@ -6,19 +6,27 @@ Usage:
 
 import argparse
 import configparser
+import re
 import time
 
 from loguru import logger
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 
-# LangChain imports
-from langchain.chat_models import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
-from langchain.output_parsers import PydanticOutputParser
-from langchain.chains import LLMChain
-from langchain.memory import ConversationBufferWindowMemory
+try:
+    from langchain_core.messages import (
+        SystemMessage,
+        HumanMessage,
+        AIMessage,
+        trim_messages
+    )
+except ImportError:
+    logger.error("You need a newer version of langchain that includes langchain_core.messages.")
+    raise
+
 from pydantic import BaseModel, Field
+from langchain_openai.chat_models import ChatOpenAI
+from langchain.output_parsers import PydanticOutputParser
 
 KEY_INI_TEMPLATE = '''[KEYS]
 openai = [YOUR API KEY]'''
@@ -61,130 +69,132 @@ def execute_selenium_action(action_data: SeleniumAction, driver) -> str:
         else:
             return f"Unknown action: {action_data.action}"
     except Exception as e:
-        return f"Error executing Selenium action: {e}"
+        # Convert to string
+        error_text = str(e)
+        # If the string contains "Stacktrace:", chop it off
+        error_text = re.sub(r"Stacktrace:.*", "", error_text, flags=re.DOTALL).strip()
+
+        return f"Error executing Selenium action: {error_text}"
 
 
 def main():
-    # --------------------------
-    # Parse CLI arguments
-    # --------------------------
-    arg_parser = argparse.ArgumentParser(description="Autonomous Selenium Assistant.")
+    # A) Parse CLI arguments
+    arg_parser = argparse.ArgumentParser(description="Autonomous Selenium Assistant (new trim_messages approach)")
     arg_parser.add_argument("-t", "--task", required=True, help="Final goal/task for the assistant.")
     arg_parser.add_argument("-i", "--iterations", type=int, default=5, help="Number of LLM iterations allowed.")
     args = arg_parser.parse_args()
 
-    # --------------------------
-    # Load OpenAI API key
-    # --------------------------
-    config = configparser.ConfigParser()
-    config.read('key.ini')
-    try:
-        openai_key = config['KEYS']['openai']
-    except KeyError:
-        logger.error('OpenAI API key missing! Enter your key in key.ini')
-        with open('key.ini', 'w') as f:
-            f.write(KEY_INI_TEMPLATE)
-        exit(-1)
-
-    # --------------------------
-    # Initialize Selenium WebDriver
-    # --------------------------
+    # B) Initialize headless Selenium WebDriver
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
     driver = webdriver.Chrome(options=options)
     logger.info("Headless Chrome WebDriver started.")
 
-    # --------------------------
-    # Create a short-memory buffer to limit token usage
-    # --------------------------
-    memory = ConversationBufferWindowMemory(
-        k=3,  # keep last 3 exchanges in memory
-        return_messages=True
-    )
+    # PS) Initialize api key
+    config = configparser.ConfigParser()
+    config.read('key.ini')
+    try:
+        openai_key = config['KEYS']['openai']
+    except KeyError:
+        logger.error('No API key! Add api key to key.ini')
+        with open('key.ini', 'w') as f:
+            f.write(KEY_INI_TEMPLATE)
+        exit(-1)
 
-    # --------------------------
-    # Build a system prompt
-    # --------------------------
-    system_template = """
-You are a Selenium browser automation assistant. Your final goal: {task}.
-You have up to {iterations} steps (iterations) to achieve this goal.
+    # C) Build an initial conversation history (list of messages)
+    #    We'll keep the system instructions as the first item.
+    conversation_history = [
+        SystemMessage(
+            content=(
+                "You are a Selenium browser automation assistant.\n"
+                f"Your final goal: {args.task}\n\n"
+                "You must respond ONLY in valid JSON (no extra text) with the schema:\n"
+                "{\n"
+                "  \"action\": \"navigate|click|input|extract|sleep\",\n"
+                "  \"selector\": \"<CSS selector>\",\n"
+                "  \"value\": \"<URL/text/seconds if needed>\"\n"
+                "}\n"
+                "Example:\n"
+                "{\"action\": \"navigate\", \"value\": \"https://example.com\"}"
+            )
+        )
+    ]
 
-Respond ONLY in valid JSON matching this schema:
-{
-  "action": "navigate|click|input|extract|sleep",
-  "selector": "<CSS selector>",
-  "value": "<value, e.g. URL or text or number of seconds>"
-}
+    # We'll define a simpler function to pass trimmed history to the LLM.
+    def call_llm_with_trimmed_history(llm, conversation_history, user_text, max_tokens=3000):
+        """
+        1) Append a HumanMessage(user_text) to conversation_history.
+        2) Trim the entire conversation with `trim_messages` so we don't blow up token usage.
+        3) Call the LLM with the trimmed conversation.
+        4) Return the LLM's text output as a string.
+        5) Also append the LLM's response as an AIMessage to conversation_history.
+        """
+        # Step 1: Append user message
+        conversation_history.append(HumanMessage(content=user_text))
 
-No explanations or extra text outside the JSON.
-Example:
-{"action": "navigate", "value": "https://google.com"}
-""".strip()
+        # Step 2: Trim the conversation
+        # This is a simplified approach: we count messages with `len()`.
+        # For real usage, pass a token_counter that uses model to measure tokens or a more advanced approach.
+        trimmed = trim_messages(
+            conversation_history,
+            token_counter=len,
+            max_tokens=10,        # e.g. keep 10 messages total
+            strategy="last",      # keep last messages
+            start_on="human",     # ensure we don't break the sequence in the middle
+            include_system=True,  # we want to keep the system prompt if possible
+            allow_partial=False,
+        )
 
-    system_prompt = SystemMessagePromptTemplate.from_template(system_template)
-    human_prompt = HumanMessagePromptTemplate.from_template("{human_input}")
+        # Step 3: Actually call the model
+        # We'll use `ChatOpenAI.invoke` or `.predict_messages`.
+        # We'll pass `trimmed` as a list of messages.
+        response = llm.invoke(trimmed)
+        llm_text = response.content
 
-    # We insert a placeholder for conversation memory in between system & human prompts
-    chat_prompt = ChatPromptTemplate.from_messages(
-        [system_prompt, *memory.prompt_messages, human_prompt]
-    )
+        # Step 4: Return the LLM's text
+        # Step 5: Append the LLM's message to conversation_history
+        conversation_history.append(AIMessage(content=llm_text))
 
-    # Format the system message with our arguments
-    system_prompt_content = system_prompt.format(task=args.task, iterations=args.iterations)
-    logger.info(f"System Prompt for LLM:\n{system_prompt_content}")
+        return llm_text
 
-    # --------------------------
-    # Initialize the LLM chain with memory
-    # --------------------------
-    llm = ChatOpenAI(model_name="gpt-4o", temperature=0.2, openai_api_key=openai_key)
-    chain = LLMChain(
-        llm=llm,
-        prompt=chat_prompt,
-        memory=memory,
-        verbose=False
-    )
+    # D) Initialize our LLM
+    llm = ChatOpenAI(model_name="gpt-4", temperature=0.0, openai_api_key=openai_key)  # or any other model
 
-    # We "prime" the memory by manually adding the system prompt
-    memory.chat_memory.add_message({"role": "system", "content": system_prompt_content})
-
-    # No Selenium result yet
+    # E) Let's track the last Selenium result to show LLM
     last_selenium_result = "No actions performed yet."
 
-    # --------------------------
-    # Autonomous loop
-    # --------------------------
+    # F) Main loop
     try:
         for step in range(1, args.iterations + 1):
             logger.info(f"--- Iteration {step}/{args.iterations} ---")
 
-            # Our "human" input to the chain:
-            # We tell the LLM to provide the next command,
-            # and also show the result from the last iteration.
-            human_input_text = (
-                f"Please provide the next command.\n"
+            # We'll ask the LLM: "Give me next command. (Here is the last result...)"
+            user_message_text = (
+                f"Please provide your next Selenium command.\n"
                 f"Last Selenium result: {last_selenium_result}"
             )
 
-            # Query the LLM chain
-            llm_output = chain.run(human_input=human_input_text)
-            logger.info(f"LLM Output: {llm_output}")
+            # 1) Call LLM with trimmed conversation
+            llm_output = call_llm_with_trimmed_history(llm, conversation_history, user_message_text)
+            logger.info("LLM Output:\n{}", llm_output)
 
-            # Parse JSON from LLM output
+            # 2) Parse JSON from the LLM
             try:
                 action_data = parser.parse(llm_output)
             except Exception as e:
-                logger.error(f"Error parsing LLM output as JSON: {e}")
+                logger.error(f"Error: LLM response is not valid JSON: {e}")
                 break
 
-            # Execute Selenium action
+            # 3) Execute the Selenium action
             last_selenium_result = execute_selenium_action(action_data, driver)
-            logger.info(f"Selenium result: {last_selenium_result}")
+            logger.info("Selenium Result:\n{}", last_selenium_result)
 
-            # Optional: Decide if we have reached the goal or if we should break early.
-            # For now, we just continue until we exhaust all iterations.
+            # If there's a condition to stop early (e.g. if the LLM says "stop"), you can break here.
+            # e.g. if action_data.action == "stop": break
 
-        logger.info("All iterations completed.")
+        logger.info("Loop completed normally.")
     finally:
+        # G) Cleanup
         driver.quit()
         logger.info("Browser session ended.")
 

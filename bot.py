@@ -321,7 +321,7 @@ def main():
                 "You must respond ONLY in valid JSON (no extra text!) with the following schema:\n"
                 "{\n"
                 "  \"action\": \"web_search|navigate|extract_article_text|find_clickable|find_input|press_enter|click|input|extract|stop|sleep\",\n"
-                "  \"selector\": \"<CSS selector>\",\n"
+                "  \"selector\": \"<XPath selector>\",\n"
                 "  \"value\": \"<URL/text/number_of_seconds/number_of_tokens if needed>\"\n"
                 "}\n\n"
 
@@ -332,7 +332,7 @@ def main():
                 "- **input**: Type text into the input identified by XPath selector. (provide the text in \"value\").\n"
                 "- **find_clickable**: Locate all clickable elements such as a button/link (no css selector needed).\n"
                 "- **click**: Click the element identified by XPath selector.\n"
-                "- **press_enter**: Press the Enter key in input identified by CSS selector.\n"
+                "- **press_enter**: Press the Enter key in input identified by XPath selector.\n"
                 "- **extract_article_text**: Extract the main text of the page (with the number of tokens to skip in \"value\").\n"
                 "- **extract**: Extract plain text from the chosen element (XPath in \"selector\").\n"
                 "- **stop**: If you're convinced that you already achieved your final goal, use this command to stop the conversation.\n"

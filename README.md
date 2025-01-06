@@ -22,6 +22,7 @@ This repository contains a Python script (`bot.py`) that uses an LLM (Large Lang
    - `requests`
    - `selenium`
    - `tiktoken`
+   - `tqdm`
    - `pydantic`
    - `langchain-openai` (and its dependencies)
    - (Optional) `langchain` with a recent version that supports `langchain_core.messages`.
@@ -53,7 +54,7 @@ This repository contains a Python script (`bot.py`) that uses an LLM (Large Lang
      ```
      or manually:
      ```bash
-     pip install boilerpy3 configparser loguru requests selenium tiktoken pydantic langchain-openai
+     pip install boilerpy3 configparser loguru requests selenium tiktoken tqdm pydantic langchain-openai
      ```
    - If you see errors about `langchain_core.messages`, you may need a newer `langchain` version.
 

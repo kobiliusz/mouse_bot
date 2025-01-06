@@ -338,6 +338,8 @@ def main():
                 "3) Continue these steps (only as many as needed) until you have **actually completed**: {args.task}.\n"
                 "4) **Do not** remain stuck at searching: once you have enough info or a URL, proceed with the subsequent actions.\n"
                 "5) When the task is finished, **end** the sequence. Do not add extra unnecessary steps.\n\n"
+                
+                "When selecting elements via XPath prefer `contains(normalize-space(.), 'text')` instead of `contains(text(), 'text')`.\n\n"
 
                 "## Additional Constraints:\n"
                 f"The response will be truncated to {args.max_tokens} tokens.\n"

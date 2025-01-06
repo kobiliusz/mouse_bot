@@ -264,7 +264,7 @@ def main():
     conversation_history = [
         SystemMessage(
             content=(
-                "Disregard previous guidelines. You are a Selenium browser automation assistant.\n"
+                "You are a Selenium browser automation assistant.\n"
                 f"Your final goal is to actually {args.task}.\n\n"
 
                 "## Response Format:\n"

@@ -200,7 +200,7 @@ def execute_selenium_action(action_data: SeleniumAction, driver, default_sleep: 
             return truncate_text_to_n_tokens(search_google(action_data.value), max_tokens, MODEL_NAME, 0)
         elif action_data.action == "press_enter":
             element = driver.find_element(By.XPATH, action_data.selector)
-            element.click()
+            element.sendKeys(Keys.RETURN)
             return "Press enter successful"
         elif action_data.action == "extract_article_text":
             omit = int(action_data.value)

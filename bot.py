@@ -208,12 +208,16 @@ def execute_selenium_action(action_data: SeleniumAction, driver, default_sleep: 
         else:
             return f"Unknown action: {action_data.action}"
     except Exception as e:
-        # Convert to string
-        error_text = str(e)
-        # If the string contains "Stacktrace:", chop it off
-        error_text = re.sub(r"Stacktrace:.*", "", error_text, flags=re.DOTALL).strip()
-
+        error_text = process_error(e)
         return f"Error executing Selenium action: {error_text}"
+
+
+def process_error(e):
+    # Convert to string
+    error_text = str(e)
+    # If the string contains "Stacktrace:", chop it off
+    error_text = re.sub(r"Stacktrace:.*", "", error_text, flags=re.DOTALL).strip()
+    return error_text
 
 
 def truncate_text_to_n_tokens(text: str, n: int, model_name: str, omit_tokens: int) -> str:
@@ -261,22 +265,42 @@ def main():
         SystemMessage(
             content=(
                 "You are a Selenium browser automation assistant.\n"
-                f"Your final goal: {args.task}\n\n"
-                "You must respond ONLY in valid JSON (no extra text) with the schema:\n"
+                f"Your final goal is to actually {args.task}.\n\n"
+
+                "## Response Format:\n"
+                "You must respond ONLY in valid JSON (no extra text!) with the following schema:\n"
                 "{\n"
-                "\"action\": \"web_search|navigate|extract_article_text|find_clickable|find_input|press_enter|click|input"
-                "|extract|sleep\",\n"
+                "  \"action\": \"web_search|navigate|extract_article_text|find_clickable|find_input|press_enter|click|input|extract|stop|sleep\",\n"
                 "  \"selector\": \"<CSS selector>\",\n"
-                "  \"value\": \"<URL/text/seconds/tokens if needed>\"\n"
-                "}\n"
-                "Example:\n"
-                "{\"action\": \"navigate\", \"value\": \"https://duckduckgo.com/\"}\n"
-                "extract_text takes number of tokens to skip at the beginning as an argument\n"
-                f"The response will be truncated to {args.max_tokens}.\n"
-                f"There will be (an additional) pause between requests of {args.pause} seconds.\n"
+                "  \"value\": \"<URL/text/number_of_seconds/number_of_tokens if needed>\"\n"
+                "}\n\n"
+
+                "### Action Descriptions:\n"
+                "- **web_search**: Use ONLY if you do not know where to find required information (e.g., no known URL). Please do not overuse it. (put the search terms in \"value\")\n"
+                "- **navigate**: Go to a given page (put the URL in \"value\").\n"
+                "- **find_input**: Locate all texts field/inputs on the page (no css selector needed).\n"
+                "- **input**: Type text into the currently selected input (provide the text in \"value\").\n"
+                "- **find_clickable**: Locate all clickable elements such as a button/link (no css selector needed).\n"
+                "- **click**: Click the element identified by CSS selector.\n"
+                "- **press_enter**: Press the Enter key in input identified by CSS selector.\n"
+                "- **extract_article_text**: Extract the main text of the page (with the number of tokens to skip in \"value\").\n"
+                "- **extract**: Extract plain text from the chosen element (CSS in \"selector\").\n"
+                "- **stop**: If you're convinced that you already achieved your final goal, use this command to stop the conversation.\n"
+                "- **sleep**: Wait for the specified number of seconds (put that in \"value\").\n\n"
+
+                "## Execution Rules:\n"
+                "1) Start by navigating to the relevant page if you know the URL. If you do not know it, only then use \"web_search\".\n"
+                "2) Fill form fields with \"find_input\" and \"input\". Click buttons or links with \"find_clickable\" and \"click\".\n"
+                "3) Continue these steps (only as many as needed) until you have **actually completed**: {args.task}.\n"
+                "4) **Do not** remain stuck at searching: once you have enough info or a URL, proceed with the subsequent actions.\n"
+                "5) When the task is finished, **end** the sequence. Do not add extra unnecessary steps.\n\n"
+
+                "## Additional Constraints:\n"
+                f"The response will be truncated to {args.max_tokens} tokens.\n"
+                f"There will be an additional pause between requests of {args.pause} seconds.\n"
                 f"Your conversation memory fits {args.remembered} messages.\n"
-                "Do not use the following websites as selenium can't handle them:\n"
-                "google.com"
+                "Do NOT use the following websites (Selenium can't handle them):\n"
+                "google.com\n"
             )
         )
     ]
@@ -331,6 +355,7 @@ def main():
 
             # We'll ask the LLM: "Give me next command. (Here is the last result...)"
             user_message_text = (
+                f'Iteration {step} of {args.iterations}\n'
                 f"Please provide your next Selenium command.\n"
                 f"Last Selenium result: {last_selenium_result}"
             )
@@ -342,12 +367,15 @@ def main():
             # 2) Parse JSON from the LLM
             try:
                 action_data = parser.parse(llm_output)
+                # 3) Execute the Selenium action
+                if action_data.action == "stop":
+                    logger.info("The LLM decided to stop execution.")
+                    return
+                last_selenium_result = execute_selenium_action(action_data, driver, args.pause, args.max_tokens)
             except Exception as e:
                 logger.error(f"Error: LLM response is not valid JSON: {e}")
-                break
+                last_selenium_result = process_error(e)
 
-            # 3) Execute the Selenium action
-            last_selenium_result = execute_selenium_action(action_data, driver, args.pause, args.max_tokens)
             logger.info("Truncated Selenium Result:\n{}", last_selenium_result)
 
             # sleep

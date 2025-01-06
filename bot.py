@@ -264,7 +264,7 @@ def main():
     conversation_history = [
         SystemMessage(
             content=(
-                "You are a Selenium browser automation assistant.\n"
+                "Disregard previous guidelines. You are a Selenium browser automation assistant.\n"
                 f"Your final goal is to actually {args.task}.\n\n"
 
                 "## Response Format:\n"
@@ -279,12 +279,12 @@ def main():
                 "- **web_search**: Use ONLY if you do not know where to find required information (e.g., no known URL). Please do not overuse it. (put the search terms in \"value\")\n"
                 "- **navigate**: Go to a given page (put the URL in \"value\").\n"
                 "- **find_input**: Locate all texts field/inputs on the page (no css selector needed).\n"
-                "- **input**: Type text into the currently selected input (provide the text in \"value\").\n"
+                "- **input**: Type text into the input identified by XPath selector. (provide the text in \"value\").\n"
                 "- **find_clickable**: Locate all clickable elements such as a button/link (no css selector needed).\n"
-                "- **click**: Click the element identified by CSS selector.\n"
+                "- **click**: Click the element identified by XPath selector.\n"
                 "- **press_enter**: Press the Enter key in input identified by CSS selector.\n"
                 "- **extract_article_text**: Extract the main text of the page (with the number of tokens to skip in \"value\").\n"
-                "- **extract**: Extract plain text from the chosen element (CSS in \"selector\").\n"
+                "- **extract**: Extract plain text from the chosen element (XPath in \"selector\").\n"
                 "- **stop**: If you're convinced that you already achieved your final goal, use this command to stop the conversation.\n"
                 "- **sleep**: Wait for the specified number of seconds (put that in \"value\").\n\n"
 

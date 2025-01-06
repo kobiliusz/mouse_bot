@@ -15,6 +15,7 @@ import urllib
 import json
 
 from loguru import logger
+from tqdm import trange
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
@@ -62,6 +63,16 @@ class SeleniumAction(BaseModel):
 
 
 parser = PydanticOutputParser(pydantic_object=SeleniumAction)
+
+
+def progress_sleep(total_seconds: float, steps: int = 10):
+    """
+    Czeka total_seconds, dzieląc całość na `steps` krótszych okresów.
+    Wyświetla pasek postępu z podziałem na steps kroków.
+    """
+    interval = total_seconds / steps
+    for _ in trange(steps, desc="Waiting"):
+        time.sleep(interval)
 
 
 def search_google(keywords):
@@ -190,7 +201,7 @@ def execute_selenium_action(action_data: SeleniumAction, driver, default_sleep: 
         elif action_data.action == "sleep":
             secs = int(action_data.value)
             logger.info(f'Sleeping for {secs} seconds.')
-            time.sleep(secs)
+            progress_sleep(secs)
             return f"{secs + default_sleep} seconds have elapsed"
         elif action_data.action == "find_clickable":
             return truncate_text_to_n_tokens(find_clickable_elements(driver), max_tokens, MODEL_NAME, 0)
@@ -383,7 +394,7 @@ def main():
 
             # sleep
             logger.info(f'Sleeping for {args.pause} seconds.')
-            time.sleep(args.pause)
+            progress_sleep(args.pause)
 
             # If there's a condition to stop early (e.g. if the LLM says "stop"), you can break here.
             # e.g. if action_data.action == "stop": break

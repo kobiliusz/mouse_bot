@@ -1,10 +1,11 @@
-argparse
-boilerpy3
-configparser
-loguru
-requests
-selenium
-tiktoken
-pydantic
+argparse~=1.4.0
+boilerpy3~=1.0.7
+configparser~=7.1.0
+loguru~=0.7.3
+requests~=2.32.3
+selenium~=4.27.1
+tiktoken~=0.8.0
+pydantic~=2.10.4
 langchain-openai
 langchain >= 0.3.14
+tqdm~=4.67.1

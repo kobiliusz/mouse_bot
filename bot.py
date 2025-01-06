@@ -92,7 +92,9 @@ def extract_text(driver):
 def find_clickable_elements(driver):
     """
     Return a list of descriptive strings for clickable elements on the current page.
-    Each string includes tag name, class, id, and text (where applicable).
+    Each string can include: tag name, class, id, and text or alt text.
+    Empty/None fields are omitted from the final string.
+    Additionally, we distinguish if the content is from element.text or from the alt attribute.
     """
     # Common selectors for potentially clickable elements
     clickable_selector = (
@@ -105,22 +107,50 @@ def find_clickable_elements(driver):
         "[onclick]"
     )
 
-    # Find candidate elements
     candidates = driver.find_elements(By.CSS_SELECTOR, clickable_selector)
-
-    # Build descriptions for visible & enabled elements
     descriptions = []
+
     for element in candidates:
         if element.is_displayed() and element.is_enabled():
-            tag_name = element.tag_name or "(no tag)"
-            class_attr = element.get_attribute("class") or "(no class)"
-            id_attr = element.get_attribute("id") or "(no id)"
-            text_attr = element.text.strip() or "(no text)"
+            tag_name = element.tag_name or ""
+            class_attr = element.get_attribute("class") or ""
+            id_attr = element.get_attribute("id") or ""
 
-            description = f"tag={tag_name}, class={class_attr}, id={id_attr}, text={text_attr}"
-            descriptions.append(description)
+            # Try .text first
+            text_val = (element.text or "").strip()
+            text_label = ""
 
-    return 'Found clickable elements:\n' + '\n'.join(descriptions)
+            if text_val:
+                # We have normal text
+                text_label = "text"
+            else:
+                # No normal text => try <img alt="...">
+                try:
+                    img = element.find_element(By.TAG_NAME, "img")
+                    alt_text = (img.get_attribute("alt") or "").strip()
+                    if alt_text:
+                        text_val = alt_text
+                        text_label = "alt"
+                except:
+                    pass  # no <img> child or something else => we stay with empty text_val
+
+            # Build a list of non-empty fields
+            field_parts = []
+            if tag_name:
+                field_parts.append(f"tag={tag_name}")
+            if class_attr:
+                field_parts.append(f"class={class_attr}")
+            if id_attr:
+                field_parts.append(f"id={id_attr}")
+            if text_val:
+                # If we found text or alt, label them differently
+                field_parts.append(f"{text_label}={text_val}")
+
+            # Only add to descriptions if there's something to show
+            if field_parts:
+                descriptions.append(", ".join(field_parts))
+
+    return "Found clickable elements:\n" + "\n".join(descriptions)
 
 
 def find_input_elements(driver):

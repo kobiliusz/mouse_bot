@@ -8,13 +8,20 @@ import argparse
 import configparser
 import re
 import time
-import html2text
+import boilerpy3
 import tiktoken
+import requests
+import urllib
+import json
 
 from loguru import logger
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
+
+from pydantic import BaseModel, Field
+from langchain_openai.chat_models import ChatOpenAI
+from langchain.output_parsers import PydanticOutputParser
 
 MODEL_NAME = "gpt-4o"
 
@@ -29,12 +36,23 @@ except ImportError:
     logger.error("You need a newer version of langchain that includes langchain_core.messages.")
     raise
 
-from pydantic import BaseModel, Field
-from langchain_openai.chat_models import ChatOpenAI
-from langchain.output_parsers import PydanticOutputParser
 
 KEY_INI_TEMPLATE = '''[KEYS]
-openai = [YOUR API KEY]'''
+openai = [YOUR API KEY]
+serpstack = [YOUR SERPSTACK KEY]'''
+
+
+# Initialize api key
+config = configparser.ConfigParser()
+config.read('key.ini')
+try:
+    OPENAI_KEY = config['KEYS']['openai']
+    SERPSTACK_KEY = config['KEYS']['serpstack']
+except KeyError:
+    logger.error('No API key! Add api key to key.ini')
+    with open('key.ini', 'w') as f:
+        f.write(KEY_INI_TEMPLATE)
+    exit(-1)
 
 
 class SeleniumAction(BaseModel):
@@ -46,14 +64,18 @@ class SeleniumAction(BaseModel):
 parser = PydanticOutputParser(pydantic_object=SeleniumAction)
 
 
-def extract_text(driver):
-    html_parser = html2text.HTML2Text()
-    html_parser.single_line_break = True
-    html_parser.images_to_alt = True
-    html_parser.inline_links = False
+def search_google(keywords):
+    api_result = json.loads(requests.get(
+        f'http://api.serpstack.com/search?access_key={SERPSTACK_KEY}&query={urllib.parse.quote_plus(keywords)}').text)
+    organic_results = api_result['organic_results']
+    processed_results = [{k: r[k] for k in {'title', 'url'}} for r in organic_results]
+    return json.dumps(processed_results)
 
+
+def extract_text(driver):
     html_source = driver.page_source
-    return html_parser.handle(html_source)
+    extractor = boilerpy3.extractors.ArticleExtractor()
+    return extractor.get_content(html_source)
 
 
 def find_clickable_elements(driver):
@@ -172,11 +194,13 @@ def execute_selenium_action(action_data: SeleniumAction, driver, default_sleep: 
             return truncate_text_to_n_tokens(find_clickable_elements(driver), max_tokens, MODEL_NAME, 0)
         elif action_data.action == "find_input":
             return truncate_text_to_n_tokens(find_input_elements(driver), max_tokens, MODEL_NAME, 0)
+        elif action_data.action == "web_search":
+            return truncate_text_to_n_tokens(search_google(action_data.value), max_tokens, MODEL_NAME, 0)
         elif action_data.action == "press_enter":
             element = driver.find_element(By.CSS_SELECTOR, action_data.selector)
             element.click()
             return "Press enter successful"
-        elif action_data.action == "extract_text":
+        elif action_data.action == "extract_article_text":
             omit = int(action_data.value)
             extracted_text = extract_text(driver)
             extracted_text = truncate_text_to_n_tokens(extracted_text, max_tokens, MODEL_NAME, omit)
@@ -231,17 +255,6 @@ def main():
     driver = webdriver.Chrome(options=options)
     logger.info("Headless Chrome WebDriver started.")
 
-    # PS) Initialize api key
-    config = configparser.ConfigParser()
-    config.read('key.ini')
-    try:
-        openai_key = config['KEYS']['openai']
-    except KeyError:
-        logger.error('No API key! Add api key to key.ini')
-        with open('key.ini', 'w') as f:
-            f.write(KEY_INI_TEMPLATE)
-        exit(-1)
-
     # C) Build an initial conversation history (list of messages)
     #    We'll keep the system instructions as the first item.
     conversation_history = [
@@ -251,7 +264,8 @@ def main():
                 f"Your final goal: {args.task}\n\n"
                 "You must respond ONLY in valid JSON (no extra text) with the schema:\n"
                 "{\n"
-                "  \"action\": \"navigate|extract_text|find_clickable|find_input|press_enter|click|input|extract|sleep\",\n"
+                "\"action\": \"web_search|navigate|extract_article_text|find_clickable|find_input|press_enter|click|input"
+                "|extract|sleep\",\n"
                 "  \"selector\": \"<CSS selector>\",\n"
                 "  \"value\": \"<URL/text/seconds/tokens if needed>\"\n"
                 "}\n"
@@ -305,7 +319,7 @@ def main():
         return llm_text
 
     # D) Initialize our LLM
-    llm = ChatOpenAI(model_name=MODEL_NAME, temperature=0.0, openai_api_key=openai_key)  # or any other model
+    llm = ChatOpenAI(model_name=MODEL_NAME, temperature=0.0, openai_api_key=OPENAI_KEY)  # or any other model
 
     # E) Let's track the last Selenium result to show LLM
     last_selenium_result = "No actions performed yet."

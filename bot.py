@@ -95,7 +95,7 @@ def find_clickable_elements(driver):
     )
 
     # Find candidate elements
-    candidates = driver.find_elements(By.XPATH, clickable_selector)
+    candidates = driver.find_elements(By.CSS_SELECTOR, clickable_selector)
 
     # Build descriptions for visible & enabled elements
     descriptions = []
@@ -126,7 +126,7 @@ def find_input_elements(driver):
     )
 
     # Find candidate elements
-    candidates = driver.find_elements(By.XPATH, input_selector)
+    candidates = driver.find_elements(By.CSS_SELECTOR, input_selector)
 
     # Build descriptions for visible & enabled elements
     descriptions = []

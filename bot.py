@@ -95,7 +95,7 @@ def find_clickable_elements(driver):
     )
 
     # Find candidate elements
-    candidates = driver.find_elements(By.CSS_SELECTOR, clickable_selector)
+    candidates = driver.find_elements(By.XPATH, clickable_selector)
 
     # Build descriptions for visible & enabled elements
     descriptions = []
@@ -126,7 +126,7 @@ def find_input_elements(driver):
     )
 
     # Find candidate elements
-    candidates = driver.find_elements(By.CSS_SELECTOR, input_selector)
+    candidates = driver.find_elements(By.XPATH, input_selector)
 
     # Build descriptions for visible & enabled elements
     descriptions = []
@@ -163,7 +163,7 @@ def press_enter(driver, css_selector):
     """
     Znajduje element za pomocą selektora CSS i wysyła mu klawisz Enter.
     """
-    element = driver.find_element(By.CSS_SELECTOR, css_selector)
+    element = driver.find_element(By.XPATH, css_selector)
     element.send_keys(Keys.ENTER)
 
 
@@ -174,15 +174,15 @@ def execute_selenium_action(action_data: SeleniumAction, driver, default_sleep: 
             driver.get(action_data.value)
             return "Navigation successful"
         elif action_data.action == "click":
-            element = driver.find_element(By.CSS_SELECTOR, action_data.selector)
+            element = driver.find_element(By.XPATH, action_data.selector)
             element.click()
             return "Click successful"
         elif action_data.action == "input":
-            element = driver.find_element(By.CSS_SELECTOR, action_data.selector)
+            element = driver.find_element(By.XPATH, action_data.selector)
             element.send_keys(action_data.value)
             return "Input successful"
         elif action_data.action == "extract":
-            element = driver.find_element(By.CSS_SELECTOR, action_data.selector)
+            element = driver.find_element(By.XPATH, action_data.selector)
             # Truncate text if it's too large
             return truncate_text_to_n_tokens(element.text, max_tokens, MODEL_NAME, 0)
         elif action_data.action == "sleep":
@@ -197,7 +197,7 @@ def execute_selenium_action(action_data: SeleniumAction, driver, default_sleep: 
         elif action_data.action == "web_search":
             return truncate_text_to_n_tokens(search_google(action_data.value), max_tokens, MODEL_NAME, 0)
         elif action_data.action == "press_enter":
-            element = driver.find_element(By.CSS_SELECTOR, action_data.selector)
+            element = driver.find_element(By.XPATH, action_data.selector)
             element.click()
             return "Press enter successful"
         elif action_data.action == "extract_article_text":
@@ -264,8 +264,9 @@ def main():
     conversation_history = [
         SystemMessage(
             content=(
-                "You are a Selenium browser automation assistant.\n"
-                f"Your final goal is to actually {args.task}.\n\n"
+                "You are an autonomous Selenium browser automation assistant.\n"
+                f"Your final goal is to {args.task}.\n"
+                f"It's important that this task is achieved in the actual internet, not just conversation logs.\n"
 
                 "## Response Format:\n"
                 "You must respond ONLY in valid JSON (no extra text!) with the following schema:\n"

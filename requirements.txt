@@ -1,0 +1,10 @@
+argparse
+boilerpy3
+configparser
+loguru
+requests
+selenium
+tiktoken
+pydantic
+langchain-openai
+langchain >= 0.3.14

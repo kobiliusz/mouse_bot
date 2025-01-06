@@ -175,10 +175,12 @@ def execute_selenium_action(action_data: SeleniumAction, driver, default_sleep: 
             return "Navigation successful"
         elif action_data.action == "click":
             element = driver.find_element(By.XPATH, action_data.selector)
-            element.click()
+            driver.execute_script("arguments[0].scrollIntoView(true);", element)
+            driver.execute_script("arguments[0].click();", element)
             return "Click successful"
         elif action_data.action == "input":
             element = driver.find_element(By.XPATH, action_data.selector)
+            driver.execute_script("arguments[0].scrollIntoView(true);", element)
             element.send_keys(action_data.value)
             return "Input successful"
         elif action_data.action == "extract":

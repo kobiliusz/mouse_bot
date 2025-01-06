@@ -291,6 +291,12 @@ def main():
         "Chrome/102.0.5005.115 Safari/537.36"
     )
 
+    logger.info(f'Task: {args.task}')
+    logger.info(f'Iterations: {args.iterations}')
+    logger.info(f'Iteration pause: {args.pause}s')
+    logger.info(f'Maximum tokens per message: {args.max_tokens}')
+    logger.info(f'Chat memory: {args.remembered} messages')
+
     # B) Initialize headless Selenium WebDriver
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
